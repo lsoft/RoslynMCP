@@ -12,7 +12,7 @@ if command -v dotnet &> /dev/null; then
     dotnet_version=$(dotnet --version)
     echo "   ✓ .NET SDK found: $dotnet_version"
 else
-    echo "   ✗ .NET SDK not found. Please install .NET 8.0 SDK or later."
+    echo "   ✗ .NET SDK not found. Please install .NET 10.0 SDK or later."
     exit 1
 fi
 

@@ -1,12 +1,15 @@
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace RoslynMcpServer.Services
 {
     public interface IPersistentCache
     {
-        Task<T?> GetAsync<T>(string key);
+        // Found tells a miss apart from a stored default value (0, false, null)
+        Task<(bool Found, T? Value)> TryGetAsync<T>(string key);
         Task SetAsync<T>(string key, T value, TimeSpan? expiry = null);
         Task RemoveAsync(string key);
     }
@@ -15,33 +18,54 @@ namespace RoslynMcpServer.Services
     {
         private readonly string _cacheDirectory;
 
+        private sealed class CacheEntry<T>
+        {
+            public DateTimeOffset? ExpiresAt { get; set; }
+            public T? Value { get; set; }
+        }
+
         public FilePersistentCache(string cacheDirectory = "cache")
         {
             _cacheDirectory = cacheDirectory;
             Directory.CreateDirectory(_cacheDirectory);
         }
 
-        public async Task<T?> GetAsync<T>(string key)
+        public async Task<(bool Found, T? Value)> TryGetAsync<T>(string key)
         {
             var filePath = GetFilePath(key);
             if (!File.Exists(filePath))
-                return default;
+                return (false, default);
 
             try
             {
                 var json = await File.ReadAllTextAsync(filePath);
-                return JsonSerializer.Deserialize<T>(json);
+                var entry = JsonSerializer.Deserialize<CacheEntry<T>>(json);
+                if (entry == null)
+                    return (false, default);
+
+                if (entry.ExpiresAt <= DateTimeOffset.UtcNow)
+                {
+                    await RemoveAsync(key);
+                    return (false, default);
+                }
+
+                return (true, entry.Value);
             }
-            catch
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
-                return default;
+                return (false, default);
             }
         }
 
         public async Task SetAsync<T>(string key, T value, TimeSpan? expiry = null)
         {
             var filePath = GetFilePath(key);
-            var json = JsonSerializer.Serialize(value);
+            var entry = new CacheEntry<T>
+            {
+                ExpiresAt = expiry.HasValue ? DateTimeOffset.UtcNow + expiry.Value : null,
+                Value = value
+            };
+            var json = JsonSerializer.Serialize(entry);
             await File.WriteAllTextAsync(filePath, json);
         }
 
@@ -57,8 +81,10 @@ namespace RoslynMcpServer.Services
 
         private string GetFilePath(string key)
         {
-            var safeKey = string.Join("_", key.Split(Path.GetInvalidFileNameChars()));
-            return Path.Combine(_cacheDirectory, $"{safeKey}.cache");
+            // Hash instead of replacing invalid characters: "a/b" and "a:b" must not share a file,
+            // and keys may be longer than a file name can be
+            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+            return Path.Combine(_cacheDirectory, $"{hash}.cache");
         }
     }
 
@@ -89,14 +115,23 @@ namespace RoslynMcpServer.Services
             {
                 return value;
             }
-            
+
             // L2 Cache check (if available)
             if (_l2Cache != null)
             {
                 var serializedValue = await _l2Cache.GetStringAsync(key);
                 if (serializedValue != null)
                 {
-                    value = JsonSerializer.Deserialize<T>(serializedValue);
+                    try
+                    {
+                        value = JsonSerializer.Deserialize<T>(serializedValue);
+                    }
+                    catch (JsonException)
+                    {
+                        // Corrupted or written by an incompatible version, treat as a miss
+                        value = default;
+                    }
+
                     if (value != null)
                     {
                         _l1Cache.Set(key, value, l1Expiry ?? TimeSpan.FromMinutes(10));
@@ -104,13 +139,13 @@ namespace RoslynMcpServer.Services
                     }
                 }
             }
-            
+
             // L3 Persistent cache check
-            value = await _l3Cache.GetAsync<T>(key);
-            if (value != null)
+            var (found, persisted) = await _l3Cache.TryGetAsync<T>(key);
+            if (found && persisted != null)
             {
-                await StoreInUpperCaches(key, value, l1Expiry, l2Expiry);
-                return value;
+                await StoreInUpperCaches(key, persisted, l1Expiry, l2Expiry);
+                return persisted;
             }
             
             // Compute and store at all levels

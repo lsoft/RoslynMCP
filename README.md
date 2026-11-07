@@ -14,7 +14,10 @@ A C# MCP (Model Context Protocol) server that integrates with Microsoft's Roslyn
 
 ## Prerequisites
 
-- .NET 8.0 SDK or later
+- .NET 10.0 SDK or later (the server runs on .NET 10, or on .NET 11 when 10 is not installed)
+- To analyze a project, a .NET SDK that supports its target framework: projects targeting
+  net8.0, net9.0 and net10.0 work with SDK 10; net11.0 projects need SDK 11. Projects that
+  cannot be evaluated are logged as "loaded without any references"
 - Visual Studio 2022 or VS Code (recommended for development)
 - Claude Desktop application
 

@@ -2,7 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
-using Microsoft.Build.Locator;
 using RoslynMcpServer.Services;
 
 namespace RoslynMcpServer
@@ -12,25 +11,14 @@ namespace RoslynMcpServer
         static async Task Main(string[] args)
         {
             // Create a temporary logger for early initialization
+            // stdout carries the MCP protocol, so every level has to go to stderr
             using var loggerFactory = LoggerFactory.Create(builder =>
-                builder.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Information));
+                builder.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace));
             var tempLogger = loggerFactory.CreateLogger<Program>();
 
-            // Register MSBuild before any workspace operations
-            // This is required for Roslyn to find MSBuild
-            if (!MSBuildLocator.IsRegistered)
-            {
-                try
-                {
-                    MSBuildLocator.RegisterDefaults();
-                    tempLogger.LogInformation("MSBuild registered successfully");
-                }
-                catch (Exception ex)
-                {
-                    tempLogger.LogError(ex, "Failed to register MSBuild: {Message}", ex.Message);
-                    Environment.Exit(1);
-                }
-            }
+            // No MSBuildLocator: MSBuildWorkspace loads projects in its own BuildHost process,
+            // which picks the .NET SDK that matches each project (global.json included)
+            tempLogger.LogInformation("Roslyn MCP Server on .NET {Runtime}", Environment.Version);
 
             var builder = Host.CreateApplicationBuilder(args);
 
@@ -42,8 +30,11 @@ namespace RoslynMcpServer
             });
 
             // Register services
+            builder.Services.AddSingleton<ISolutionLoader, MSBuildSolutionLoader>();
             builder.Services.AddSingleton<CodeAnalysisService>();
             builder.Services.AddSingleton<SymbolSearchService>();
+            builder.Services.AddSingleton<CodeStructureService>();
+            builder.Services.AddSingleton<CodeQualityService>();
             builder.Services.AddSingleton<SecurityValidator>();
             builder.Services.AddSingleton<DiagnosticLogger>();
             builder.Services.AddSingleton<IncrementalAnalyzer>();

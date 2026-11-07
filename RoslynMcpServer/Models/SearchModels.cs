@@ -30,6 +30,27 @@ namespace RoslynMcpServer.Models
         public string ReferenceKind { get; set; } = string.Empty;
     }
 
+    /// <summary>A symbol found through a relation (implementation, base member, caller).</summary>
+    public class RelatedItem
+    {
+        public string Name { get; set; } = string.Empty;
+        public string FullName { get; set; } = string.Empty;
+        public string Kind { get; set; } = string.Empty;
+        public string Location { get; set; } = string.Empty;
+        public string? Note { get; set; }
+        /// <summary>Call sites for callers, "L12: text"</summary>
+        public List<string> Lines { get; set; } = new();
+    }
+
+    public class RelationResult
+    {
+        public string Relation { get; set; } = "references";
+        public List<string> Targets { get; set; } = new();
+        public List<ReferenceResult> References { get; set; } = new();
+        public List<RelatedItem> Items { get; set; } = new();
+        public string? Error { get; set; }
+    }
+
     public class SymbolInfo
     {
         public string Name { get; set; } = string.Empty;
@@ -44,6 +65,8 @@ namespace RoslynMcpServer.Models
         public string ReturnType { get; set; } = string.Empty;
         public List<string> Attributes { get; set; } = new();
         public string SourceLocation { get; set; } = string.Empty;
+        /// <summary>Other symbols that matched a by-name lookup, with their locations</summary>
+        public List<string> OtherMatches { get; set; } = new();
     }
 
     public class DependencyAnalysis

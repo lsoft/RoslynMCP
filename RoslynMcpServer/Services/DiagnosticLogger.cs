@@ -23,7 +23,7 @@ namespace RoslynMcpServer.Services
             
             _logger.LogInformation(
                 "Starting {OperationName} [{OperationId}] with parameters: {Parameters}",
-                operationName, operationId, JsonSerializer.Serialize(parameters));
+                operationName, operationId, SerializeParameters(parameters));
             
             try
             {
@@ -41,6 +41,19 @@ namespace RoslynMcpServer.Services
                     "Failed {OperationName} [{OperationId}] after {ElapsedMs}ms",
                     operationName, operationId, stopwatch.ElapsedMilliseconds);
                 throw;
+            }
+        }
+
+        // Logging must never break the operation itself (cycles, unsupported types, ...)
+        private static string SerializeParameters(object? parameters)
+        {
+            try
+            {
+                return JsonSerializer.Serialize(parameters);
+            }
+            catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
+            {
+                return parameters?.ToString() ?? "null";
             }
         }
     }

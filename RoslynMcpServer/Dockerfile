@@ -1,33 +1,26 @@
-FROM mcr.microsoft.com/dotnet/runtime:8.0-alpine AS base
-WORKDIR /app
-
-# Install MSBuild dependencies
-RUN apk add --no-cache \
-    icu-libs \
-    libgcc \
-    libgssapi-krb5 \
-    libintl \
-    libssl3 \
-    libstdc++ \
-    zlib
-
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copy project file and restore dependencies
 COPY ["RoslynMcpServer.csproj", "."]
 RUN dotnet restore "RoslynMcpServer.csproj"
 
-# Copy source code and build
+# Copy source code and publish
 COPY . .
-RUN dotnet build "RoslynMcpServer.csproj" -c Release -o /app/build
+RUN dotnet publish "RoslynMcpServer.csproj" -c Release -o /app/publish --no-restore --self-contained false
 
-FROM build AS publish
-RUN dotnet publish "RoslynMcpServer.csproj" -c Release -o /app/publish --self-contained false
-
-FROM base AS final
+# The runtime image is not enough: MSBuildWorkspace evaluates the analyzed .sln/.csproj files with
+# an installed .NET SDK. The SDK also bounds which projects can be analyzed: this image handles
+# net10.0 and older; projects targeting a newer .NET need a matching SDK image.
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS final
 WORKDIR /app
-COPY --from=publish /app/publish .
+
+# stdout carries the MCP protocol, keep the SDK's first-run banners out of it
+ENV DOTNET_NOLOGO=1 \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+
+COPY --from=build /app/publish .
 
 # Create directory for workspace mounting
 RUN mkdir -p /workspace

@@ -42,7 +42,7 @@ try {
     $dotnetVersion = dotnet --version
     Write-Host "   ✓ .NET SDK found: $dotnetVersion" -ForegroundColor Green
 } catch {
-    Write-Host "   ✗ .NET SDK not found. Please install .NET 8.0 SDK or later." -ForegroundColor Red
+    Write-Host "   ✗ .NET SDK not found. Please install .NET 10.0 SDK or later." -ForegroundColor Red
     exit 1
 }
 
